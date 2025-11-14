@@ -1,0 +1,31 @@
+.pio/build/esp32dev/libf37/lvgl/drivers/display/st7735/lv_st7735.c.o: \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/lv_st7735.c \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/lv_st7735.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/lv_lcd_generic_mipi.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/lv_display.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_types.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\lv_conf_internal.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\lv_conf_kconfig.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/dio_qspi/include/sdkconfig.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/esp_common/include/esp_attr.h \
+ .pio/libdeps/esp32dev/lvgl/lv_conf.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_timer.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\tick\lv_tick.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\lv_conf_internal.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\misc\lv_types.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_types.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_ll.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_event.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_array.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_color.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_assert.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_log.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\stdlib\lv_mem.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\lv_conf_internal.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\stdlib\lv_string.h \
+ c:\users\loq\onedrive\documents\lv_project1\lv_project1\.pio\libdeps\esp32dev\lvgl\src\misc\lv_types.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_math.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_palette.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_color.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_color_op.h \
+ .pio/libdeps/esp32dev/lvgl/src/drivers/display/st7735/../lcd/../../../display/../misc/lv_area.h
