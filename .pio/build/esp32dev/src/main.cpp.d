@@ -1,5 +1,4 @@
-.pio/build/esp32dev/src/main.cpp.o: src/main.cpp \
- C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/FS/src/FS.h \
+.pio/build/esp32dev/src/main.cpp.o: src/main.cpp include/shared.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/Arduino.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp_arduino_version.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include/freertos/FreeRTOS.h \
@@ -134,10 +133,6 @@
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/esp_hw_support/include/soc/esp32/spiram.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/io_pin_remap.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/Arduino.h \
- C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/SD/src/SD.h \
- C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src/SPI.h \
- C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp32-hal-spi.h \
- C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/SD/src/sd_defines.h \
  .pio/libdeps/esp32dev/lvgl/lvgl.h \
  .pio/libdeps/esp32dev/lvgl/lv_version.h \
  .pio/libdeps/esp32dev/lvgl/src/lv_init.h \
@@ -576,7 +571,14 @@
  .pio/libdeps/esp32dev/lvgl/src/lv_api_map_v9_0.h \
  .pio/libdeps/esp32dev/lvgl/src/lv_api_map_v9_1.h \
  .pio/libdeps/esp32dev/lvgl/src/lv_api_map_v9_2.h \
- .pio/libdeps/esp32dev/lvgl/src/lv_api_map_v9_3.h \
+ .pio/libdeps/esp32dev/lvgl/src/lv_api_map_v9_3.h include/rs485.h \
+ include/ui.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/FS/src/FS.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/SD/src/SD.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src/SPI.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp32-hal-spi.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/SD/src/sd_defines.h \
+ src/fonts/lv_font_montserrat_78.h \
  .pio/libdeps/esp32dev/TFT_eSPI/TFT_eSPI.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/Print.h \
  .pio/libdeps/esp32dev/TFT_eSPI/User_Setup_Select.h \
@@ -675,4 +677,5 @@
  .pio/libdeps/esp32dev/TFT_eSPI/Extensions/Sprite.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/libraries/Wire/src/Wire.h \
  C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp32-hal.h \
- lib/GT911/src/GT911.h lib/GT911/src/GT911_Structs.h
+ lib/GT911/src/GT911.h lib/GT911/src/GT911_Structs.h \
+ C:/Users/LOQ/.platformio/packages/framework-arduinoespressif32/cores/esp32/hardwareserial.h

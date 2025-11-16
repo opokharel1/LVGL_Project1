@@ -1,11 +1,15 @@
-#include <FS.h>
-#include <SD.h>
+#include "shared.h"
+#include "rs485.h"
+#include "ui.h"
+#include "fonts/lv_font_montserrat_78.h"
+
 #include <SPI.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 #include <Wire.h>
 #include <GT911.h>
 
+#include <hardwareserial.h>
 #define SD_CS 5
 #define TFT_HOR_RES 480  // LANDSCAPE: Width first
 #define TFT_VER_RES 320  // LANDSCAPE: Height second
@@ -20,44 +24,7 @@
 #define SERIAL1_RX 16
 #define SERIAL1_TX 17
 
-// ===== Dashboard Protocol Constants =====
-#define STX1             0x5D  // Start of text1
-#define STX2             0x47  // Start of text2
-#define ETX              0x78  // End of text
-
-// Data Identifiers
-#define ID_SOC           0x85  // State of Charge (0-100%)
-#define ID_VOLTAGE       0x83  // Total voltage (0.01V precision)
-#define ID_CURRENT       0x84  // Current (0.01A precision)
-#define ID_TEMP          0x80  // Battery Temperature (0.1°C precision)      battery_temp_label
-#define ID_SPEED         0x82  // Vehicle speed (0.1 km/h precision)          speed_label
-#define ID_MODE          0x86  // Driving mode (0=ECO, 1=CITY, 2=SPORT)        mode_label
-#define ID_ARMED         0x87  // Armed status (0=DISARMED, 1=ARMED)            status_label
-#define ID_RANGE         0x88  // Remaining range (0.1 km precision)             range_label
-#define ID_CONSUMPTION   0x89  // Average consumption (0.1 W/km precision)       avg_wkm_label
-#define ID_AMBIENT_TEMP  0x8A  // Ambient temperature (0.1°C precision)           motor_temp_label
-#define ID_TRIP          0x8B  // Trip distance (0.1 km precision)               trip_label
-#define ID_ODOMETER      0x8C  // Odometer (0.1 km precision)                    odo_label
-#define ID_AVG_SPEED     0x8D  // Average speed (0.1 km/h precision)            avg_kmh_label
-
-// Driving Modes
-enum DrivingMode {
-  MODE_ECO = 0,
-  MODE_CITY = 1,
-  MODE_SPORT = 2
-};
-
-// ===== Buffer for receiving data =====
-uint8_t serialBuffer[332];
-uint16_t bufferPos = 0;
-
 GT911 ts = GT911();
-void *draw_buf;
-lv_display_t *disp;
-
-/* Buffer to store image data in RAM */
-uint8_t *image_data = NULL;
-uint32_t image_size = 0;
 
 /* Dashboard UI Elements - Global pointers to labels */
 lv_obj_t *speed_label;
@@ -76,85 +43,7 @@ lv_obj_t *voltage;
 lv_obj_t *current;
 
 lv_obj_t *time_label;              // update in time
-
-/* Dashboard Data Structure */
-struct DashboardData {
-  int speed;
-  int range;
-  int avg_wkm;
-  int trip;
-  int odo;
-  int avg_kmh;
-  int motor_temp;
-  int battery_temp;
-  String mode;
-  String status;
-  int soc;
-  float voltage;
-  float current;
-} dashData;
-
-/* Initialize dashboard data with defaults */
-void init_dashboard_data() {
-  dashData.speed = 0;
-  dashData.range = 10;
-  dashData.avg_wkm = 30;
-  dashData.trip = 110;
-  dashData.odo = 10;
-  dashData.avg_kmh = 10;
-  dashData.motor_temp = 20;
-  dashData.battery_temp = 10;
-  dashData.mode = "Sports";
-  dashData.status = "ARMED";
-  dashData.soc = 25;
-  dashData.voltage = 23.0;
-  dashData.current = 0.0;
-}
-
-// ===== CRC-16 Modbus Calculation =====
-uint16_t calculateChecksum(const uint8_t *data, uint16_t length) {
-  uint16_t crc = 0xFFFF;
-  for (uint16_t pos = 0; pos < length; pos++) {
-    crc ^= (uint16_t)data[pos];
-    for (uint8_t i = 8; i != 0; i--) {
-      if ((crc & 0x0001) != 0) {
-        crc >>= 1;
-        crc ^= 0xA001;
-      } else {
-        crc >>= 1;
-      }
-    }
-  }
-  return crc;
-}
-
-// ===== Frame Validation =====
-bool validateFrame(uint8_t* frame, uint16_t len) {
-  if (len < 15 || frame[0] != STX1 || frame[1] != STX2) {
-    return false;
-  }
-
-  uint16_t declaredLength = (frame[2] << 8) | frame[3];
-  uint16_t expectedLength = declaredLength + 6;
-  
-  if (len != expectedLength) {
-    return false;
-  }
-
-  uint16_t etxPos = 4 + declaredLength - 1;
-  if (frame[etxPos] != ETX) {
-    return false;
-  }
-
-  uint16_t calculatedChecksum = calculateChecksum(&frame[2], declaredLength + 2);
-  uint16_t receivedChecksum = (frame[expectedLength-2] << 8) | frame[expectedLength-1];
-  
-  if (receivedChecksum != calculatedChecksum) {
-    return false;
-  }
-
-  return true;
-}
+lv_obj_t *menu_btn = NULL;
 
 /* Touch callback */
 void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
@@ -166,126 +55,6 @@ void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
     data->state = LV_INDEV_STATE_PRESSED;
   } else { 
     data->state = LV_INDEV_STATE_RELEASED;
-  }
-}
-
-/* Load image from SD card into RAM */
-bool load_image_to_ram(const char *path) {
-  Serial.printf("Loading image: %s\n", path);
-
-  File file = SD.open(path);
-  if (!file) {
-    Serial.println("ERROR: Failed to open image file!");
-    return false;
-  }
-
-  image_size = file.size();
-  image_data = (uint8_t *)malloc(image_size);
-  if (!image_data) {
-    Serial.println("ERROR: Failed to allocate memory for image!");
-    file.close();
-    return false;
-  }
-
-  size_t bytes_read = file.read(image_data, image_size);
-  file.close();
-
-  if (bytes_read != image_size) {
-    free(image_data);
-    image_data = NULL;
-    return false;
-  }
-
-  Serial.println("Image loaded into RAM successfully!");
-  return true;
-}
-
-/* Update time display */
-void update_time_display() {
-  unsigned long now = millis() / 1000;
-  int hours = (now / 3600) % 24;
-  int minutes = (now / 60) % 60;
-
-  char time_str[16];
-  snprintf(time_str, sizeof(time_str), "%d:%02d AM", hours == 0 ? 12 : hours, minutes);
-  lv_label_set_text(time_label, time_str);
-}
-
-/* Update specific UI element based on ID */
-void update_ui_element(uint8_t id) {
-  char buf[32];
-  
-  switch(id) {
-    case ID_SPEED:
-      snprintf(buf, sizeof(buf), "%d", dashData.speed);
-      lv_label_set_text(speed_label, buf);
-      break;
-      
-    case ID_RANGE:
-      snprintf(buf, sizeof(buf), "Range %d km", dashData.range);
-      lv_label_set_text(range_label, buf);
-      break;
-      
-    case ID_CONSUMPTION:
-      snprintf(buf, sizeof(buf), "Avg. %d W/km", dashData.avg_wkm);
-      lv_label_set_text(avg_wkm_label, buf);
-      break;
-      
-    case ID_TRIP:
-      snprintf(buf, sizeof(buf), "TRIP %d km", dashData.trip);
-      lv_label_set_text(trip_label, buf);
-      break;
-      
-    case ID_ODOMETER:
-      snprintf(buf, sizeof(buf), "ODO %d km", dashData.odo);
-      lv_label_set_text(odo_label, buf);
-      break;
-      
-    case ID_AVG_SPEED:
-      snprintf(buf, sizeof(buf), "AVG. %d km/h", dashData.avg_kmh);
-      lv_label_set_text(avg_kmh_label, buf);
-      break;
-      
-    case ID_TEMP:
-      snprintf(buf, sizeof(buf), "Battery %d°C", dashData.battery_temp);
-      lv_label_set_text(battery_temp_label, buf);
-      break;
-      
-    case ID_AMBIENT_TEMP:
-      snprintf(buf, sizeof(buf), "Motor %d°C", dashData.motor_temp);
-      lv_label_set_text(motor_temp_label, buf);
-      break;
-      
-    case ID_MODE:
-      lv_label_set_text(mode_label, dashData.mode.c_str());
-      // Update color based on mode
-      if (dashData.mode == "Eco") {
-        lv_obj_set_style_text_color(mode_label, lv_color_hex(0x00cc00), 0);
-      } else if (dashData.mode == "City") {
-        lv_obj_set_style_text_color(mode_label, lv_color_hex(0x0088ff), 0);
-      } else if (dashData.mode == "Sport") {
-        lv_obj_set_style_text_color(mode_label, lv_color_hex(0xff0000), 0);
-      }
-      break;
-      
-    case ID_ARMED:
-      lv_label_set_text(status_label, dashData.status.c_str());
-      break;
-
-      case ID_SOC:
-      snprintf(buf, sizeof(buf), "SoC: %d%%", dashData.soc);
-      lv_label_set_text(soc, buf);
-      break;
-
-    case ID_VOLTAGE:
-      snprintf(buf, sizeof(buf), "Volt: %.2f V", dashData.voltage);
-      lv_label_set_text(voltage, buf);
-      break;
-
-    case ID_CURRENT:
-      snprintf(buf, sizeof(buf), "Curr: %.2f A", dashData.current);
-      lv_label_set_text(current, buf);
-      break;
   }
 }
 
@@ -312,10 +81,19 @@ void create_ev_dashboard_ui() {
   lv_obj_set_style_text_font(time_label, &lv_font_montserrat_18, 0);
   lv_obj_align(time_label, LV_ALIGN_CENTER, 0, 0);
 
-  lv_obj_t *menu_btn = lv_label_create(top_bar);
-  lv_label_set_text(menu_btn, "Menu");
-  lv_obj_set_style_text_font(menu_btn, &lv_font_montserrat_16, 0);
-  lv_obj_align(menu_btn, LV_ALIGN_LEFT_MID, 10, 0);
+  // Create menu button
+  menu_btn = lv_btn_create(top_bar);
+  lv_obj_set_size(menu_btn, 50, 45);
+  lv_obj_align(menu_btn, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_add_flag(menu_btn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_clear_flag(menu_btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_set_style_bg_color(menu_btn, lv_color_hex(0x333333), 0);
+
+  // Create menu symbol
+  lv_obj_t *menu_label = lv_label_create(menu_btn);
+  lv_label_set_text(menu_label, LV_SYMBOL_BARS);
+  lv_obj_set_style_text_font(menu_label, &lv_font_montserrat_20, 0);
+  lv_obj_center(menu_label);
 
   lv_obj_t *map_btn = lv_label_create(top_bar);
   lv_label_set_text(map_btn, "Map");
@@ -323,18 +101,18 @@ void create_ev_dashboard_ui() {
   lv_obj_align(map_btn, LV_ALIGN_RIGHT_MID, -10, 0);
 
   /* Status badge */
-  lv_obj_t *status_badge = lv_obj_create(scr);
-  lv_obj_set_size(status_badge, 140, 49);
-  lv_obj_align(status_badge, LV_ALIGN_TOP_MID, 0, 60);
-  lv_obj_set_style_bg_color(status_badge, lv_color_hex(0x333333), 0);
-  lv_obj_set_style_radius(status_badge, 20, 0);
-  lv_obj_set_style_border_width(status_badge, 0, 0);
+  // lv_obj_t *status_badge = lv_obj_create(scr);
+  // lv_obj_set_size(status_badge, 140, 49);
+  // lv_obj_align(status_badge, LV_ALIGN_TOP_MID, 0, 60);
+  // lv_obj_set_style_bg_color(status_badge, lv_color_hex(0x333333), 0);
+  // lv_obj_set_style_radius(status_badge, 20, 0);
+  // lv_obj_set_style_border_width(status_badge, 0, 0);
 
-  status_label = lv_label_create(status_badge);
-  lv_label_set_text(status_label, dashData.status.c_str());
-  lv_obj_set_style_text_color(status_label, lv_color_white(), 0);
-  lv_obj_set_style_text_font(status_label, &lv_font_montserrat_16, 0);
-  lv_obj_center(status_label);
+  // status_label = lv_label_create(status_badge);
+  // lv_label_set_text(status_label, dashData.status.c_str());
+  // lv_obj_set_style_text_color(status_label, lv_color_white(), 0);
+  // lv_obj_set_style_text_font(status_label, &lv_font_montserrat_16, 0);
+  // lv_obj_center(status_label);
 
   /* Main speed display */
   speed_label = lv_label_create(scr);
@@ -342,34 +120,34 @@ void create_ev_dashboard_ui() {
   snprintf(buf, sizeof(buf), "%d", dashData.speed);
   lv_label_set_text(speed_label, buf);
   lv_obj_set_style_text_color(speed_label, lv_color_black(), 0);
-  lv_obj_set_style_text_font(speed_label, &lv_font_montserrat_48, 0);
-  lv_obj_align(speed_label, LV_ALIGN_CENTER, 0, -20);
+  lv_obj_set_style_text_font(speed_label, &lv_font_montserrat_78, 0);
+  lv_obj_align(speed_label, LV_ALIGN_CENTER, 0, -40);
 
   lv_obj_t *kmh_label = lv_label_create(scr);
   lv_label_set_text(kmh_label, "Km/h");
   lv_obj_set_style_text_color(kmh_label, lv_color_black(), 0);
   lv_obj_set_style_text_font(kmh_label, &lv_font_montserrat_16, 0);
-  lv_obj_align(kmh_label, LV_ALIGN_CENTER, 0, 20);
+  lv_obj_align(kmh_label, LV_ALIGN_CENTER, 66, -34);
 
   /* Mode selector */
   lv_obj_t *mode_container = lv_obj_create(scr);
-  lv_obj_set_size(mode_container, 200, 90);
-  lv_obj_align(mode_container, LV_ALIGN_CENTER, 0, 80);
+  lv_obj_set_size(mode_container, 100, 60);
+  lv_obj_align(mode_container, LV_ALIGN_CENTER, 0, 45);
   lv_obj_set_style_bg_color(mode_container, lv_color_white(), 0);
   lv_obj_set_style_radius(mode_container, 10, 0);
   lv_obj_set_style_border_width(mode_container, 0, 0);
 
-  lv_obj_t *mode_text = lv_label_create(mode_container);
-  lv_label_set_text(mode_text, "Mode");
-  lv_obj_set_style_text_color(mode_text, lv_color_black(), 0);
-  lv_obj_set_style_text_font(mode_text, &lv_font_montserrat_16, 0);
-  lv_obj_align(mode_text, LV_ALIGN_TOP_MID, 0, 3);
+  // lv_obj_t *mode_text = lv_label_create(mode_container);
+  // lv_label_set_text(mode_text, "Mode");
+  // lv_obj_set_style_text_color(mode_text, lv_color_black(), 0);
+  // lv_obj_set_style_text_font(mode_text, &lv_font_montserrat_16, 0);
+  // lv_obj_align(mode_text, LV_ALIGN_TOP_MID, 0, 3);
 
   mode_label = lv_label_create(mode_container);
   lv_label_set_text(mode_label, dashData.mode.c_str());
   lv_obj_set_style_text_color(mode_label, lv_color_hex(0x00cc00), 0);
   lv_obj_set_style_text_font(mode_label, &lv_font_montserrat_20, 0);
-  lv_obj_align(mode_label, LV_ALIGN_CENTER, 0, 15);
+  lv_obj_align(mode_label, LV_ALIGN_CENTER, 0, 0);
 
   /* Left side info */
   range_label = lv_label_create(scr);
@@ -454,449 +232,38 @@ void create_ev_dashboard_ui() {
   Serial.println("EV dashboard UI created!");
 }
 
-/* Process RS485 frames and update UI */
-// void read_rs485_frames() {
-//   // Read available bytes from Serial1
-//   while (Serial1.available()) {
-  
-//     memmove(serialBuffer, serialBuffer+1, sizeof(serialBuffer)-1);
-//     bufferPos--;
-//     serialBuffer[bufferPos++] = Serial1.read();
-    
-//     char temp[sizeof(serialBuffer) + 1];
-//     memcpy(temp, serialBuffer, bufferPos);
-//     temp[bufferPos] = '\0';
-
-//     Serial.println(temp);
-//     yield();
-//   }
-  
-//   // Process complete frames
-//   bool frameFound = true;
-//   while (frameFound && bufferPos >= 6) {
-//     frameFound = false;
-    
-//     for (uint16_t i = 0; i < bufferPos-1; i++) {
-//       if (serialBuffer[i] == STX1 && serialBuffer[i+1] == STX2) {
-//         if (i+3 >= bufferPos) break;
-        
-//         uint16_t declaredLength = (serialBuffer[i+2] << 8) | serialBuffer[i+3];
-//         uint16_t frameLength = declaredLength + 6;
-        
-//         if (i + frameLength <= bufferPos) {
-//           if (validateFrame(&serialBuffer[i], frameLength)) {
-//             Serial.println("\n[RS485] Valid frame received");
-            
-//             uint8_t infoEnd = i + 4 + declaredLength - 5;
-//             uint8_t updatedIDs[20];
-//             uint8_t updateCount = 0;
-            
-//             // Parse all data fields
-//             for (uint8_t j = i+11; j < infoEnd;) {
-//               uint8_t id = serialBuffer[j++];
-              
-//               switch (id) {
-//                 case ID_SOC:
-//                   dashData.soc = serialBuffer[j++];
-//                   Serial.printf("  SOC: %d%%\n", dashData.soc);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-                  
-//                 case ID_VOLTAGE: {
-//                   uint16_t v = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.voltage = v * 0.01f;
-//                   j += 2;
-//                   Serial.printf("  Voltage: %.2f V\n", dashData.voltage);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_CURRENT: {
-//                   uint16_t c = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.current = (c & 0x8000) ? -(c & 0x7FFF) * 0.01f : c * 0.01f;
-//                   j += 2;
-//                   Serial.printf("  Current: %.2f A\n", dashData.current);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_TEMP: {
-//                   uint16_t t = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.battery_temp = (int)(t * 0.1f);
-//                   j += 2;
-//                   Serial.printf("  Battery Temp: %d°C\n", dashData.battery_temp);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_SPEED: {
-//                   uint16_t s = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.speed = (int)(s * 0.1f);
-//                   j += 2;
-//                   Serial.printf("  Speed: %d km/h\n", dashData.speed);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_MODE: {
-//                   uint8_t m = serialBuffer[j++];
-//                   if (m == MODE_ECO) dashData.mode = "Eco";
-//                   else if (m == MODE_CITY) dashData.mode = "City";
-//                   else if (m == MODE_SPORT) dashData.mode = "Sport";
-//                   Serial.printf("  Mode: %s\n", dashData.mode.c_str());
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_ARMED: {
-//                   uint8_t a = serialBuffer[j++];
-//                   dashData.status = a ? "ARMED" : "DISARMED";
-//                   Serial.printf("  Status: %s\n", dashData.status.c_str());
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_RANGE: {
-//                   uint16_t r = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.range = (int)(r * 0.1f);
-//                   j += 2;
-//                   Serial.printf("  Range: %d km\n", dashData.range);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_CONSUMPTION: {
-//                   uint16_t c = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.avg_wkm = (int)(c * 0.1f);
-//                   j += 2;
-//                   Serial.printf("  Consumption: %d W/km\n", dashData.avg_wkm);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_AMBIENT_TEMP: {
-//                   uint16_t t = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.motor_temp = (int)(t * 0.1f);
-//                   j += 2;
-//                   Serial.printf("  Motor Temp: %d°C\n", dashData.motor_temp);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_TRIP: {
-//                   uint16_t t = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.trip = (int)(t * 0.1f);
-//                   j += 2;
-//                   Serial.printf("  Trip: %d km\n", dashData.trip);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_ODOMETER: {
-//                   uint32_t o = (serialBuffer[j] << 24) | (serialBuffer[j+1] << 16) | 
-//                               (serialBuffer[j+2] << 8) | serialBuffer[j+3];
-//                   dashData.odo = (int)(o * 0.1f);
-//                   j += 4;
-//                   Serial.printf("  Odometer: %d km\n", dashData.odo);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-                
-//                 case ID_AVG_SPEED: {
-//                   uint16_t as = (serialBuffer[j] << 8) | serialBuffer[j+1];
-//                   dashData.avg_kmh = (int)(as * 0.1f);
-//                   j += 2;
-//                   Serial.printf("  Avg Speed: %d km/h\n", dashData.avg_kmh);
-//                   updatedIDs[updateCount++] = id;
-//                   break;
-//                 }
-
-//                 default:
-//                   Serial.printf("  Unknown ID: 0x%02X\n", id);
-//                   if (id == ID_ODOMETER) j += 4;
-//                   else if (id >= 0x80 && id <= 0x8F) j += 2;
-//                   else j++;
-//                   break;
-//               }
-//             }
-            
-//             // Update only changed UI elements
-//             Serial.printf("[UI] Updating %d elements...\n", updateCount);
-//             for (uint8_t k = 0; k < updateCount; k++) {
-//               update_ui_element(updatedIDs[k]);
-//             }
-            
-//             // Single display refresh
-//             lv_refr_now(disp);
-//             Serial.println("[UI] Display updated\n");
-            
-//             // Remove processed frame
-//             memmove(serialBuffer, &serialBuffer[i + frameLength], 
-//                     bufferPos - (i + frameLength));
-//             bufferPos -= (i + frameLength);
-//             frameFound = true;
-//             break;
-//           } else {
-//             Serial.println("Invalid Frame Received");
-//             i++; 
-//           }
-//         } else {
-//           break;
-//         }
-
-//       }
-//     }
-    
-//     if (!frameFound && bufferPos > 200) {
-//       Serial.println("[WARNING] Buffer full, clearing");
-//       bufferPos = 0;
-//     }
-//   }
-// }
-
-/* Process RS485 frames and update UI */
-void read_rs485_frames() {
-  // Read available bytes from Serial1
-  while (Serial1.available()) {
-    uint8_t incomingByte = Serial1.read();
-    
-    // Check if we should start capturing (5D 47)
-    if (bufferPos == 0) {
-      // Wait for STX1 (5D)
-      if (incomingByte == STX1) {
-        serialBuffer[bufferPos++] = incomingByte;
-      }
-      // Discard any other byte
-    } 
-    else if (bufferPos == 1) {
-      // Check for STX2 (47)
-      if (incomingByte == STX2) {
-        serialBuffer[bufferPos++] = incomingByte;
-        Serial.println("[FRAME] Start detected (5D 47)");
-      } else {
-        // False start, reset and check if this byte is STX1
-        bufferPos = 0;
-        if (incomingByte == STX1) {
-          serialBuffer[bufferPos++] = incomingByte;
-        }
-      }
-    }
-    else {
-      // Frame started, continue capturing
-      if (bufferPos < sizeof(serialBuffer)) {
-        serialBuffer[bufferPos++] = incomingByte;
-        
-        // Check if we have enough bytes to read length field
-        if (bufferPos == 4) {
-          uint16_t declaredLength = (serialBuffer[2] << 8) | serialBuffer[3];
-          uint16_t expectedFrameLength = declaredLength + 6;
-          Serial.printf("[FRAME] Expected total length: %d bytes\n", expectedFrameLength);
-          
-          // Sanity check on frame length
-          if (expectedFrameLength > sizeof(serialBuffer) || expectedFrameLength < 15) {
-            Serial.println("[ERROR] Invalid frame length, resetting");
-            bufferPos = 0;
-          }
-        }
-        
-        // Check if we might have a complete frame
-        if (bufferPos >= 15) { // Minimum valid frame size
-          uint16_t declaredLength = (serialBuffer[2] << 8) | serialBuffer[3];
-          uint16_t expectedFrameLength = declaredLength + 6;
-          
-          // Check if we have received the complete frame
-          if (bufferPos >= expectedFrameLength) {
-            uint16_t etxPos = expectedFrameLength - 3;
-            
-            // Verify ETX at correct position
-            if (serialBuffer[etxPos] == ETX) {
-              Serial.println("[FRAME] Complete frame captured!");
-              Serial.print("Frame: ");
-              for (uint16_t i = 0; i < bufferPos; i++) {
-                Serial.printf("%02X ", serialBuffer[i]);
-              }
-              Serial.println();
-              
-              // // Process the frame
-              // if (validateFrame(serialBuffer, expectedFrameLength)) {
-              //   processCompleteFrame();
-              // } else {
-              //   Serial.println("[ERROR] Frame validation failed");
-              // }
-            } else {
-              Serial.printf("[ERROR] ETX not found at position %d\n", etxPos);
-            }
-            
-            // Reset buffer for next frame
-            bufferPos = 0;
-          }
-        }
-      } else {
-        // Buffer overflow
-        Serial.println("[ERROR] Buffer overflow, resetting");
-        bufferPos = 0;
-      }
-    }
-    
-    yield();
-  }
+void init_dashboard_data() {
+  dashData.speed = 0;
+  dashData.range = 10;
+  dashData.avg_wkm = 30;
+  dashData.trip = 110;
+  dashData.odo = 10;
+  dashData.avg_kmh = 10;
+  dashData.motor_temp = 20;
+  dashData.battery_temp = 10;
+  dashData.mode = "Sports";
+  dashData.status = "ARMED";
+  dashData.soc = 25;
+  dashData.voltage = 23.0;
+  dashData.current = 0.0;
 }
 
-/* Process validated complete frame */
-void processCompleteFrame() {
-  Serial.println("\n[RS485] Processing valid frame");
-  
-  uint16_t declaredLength = (serialBuffer[2] << 8) | serialBuffer[3];
-  uint8_t infoEnd = 4 + declaredLength - 5;
-  uint8_t updatedIDs[20];
-  uint8_t updateCount = 0;
-  
-  // Parse all data fields (starting at position 11 after 7-byte header)
-  for (uint8_t j = 11; j < infoEnd;) {
-    uint8_t id = serialBuffer[j++];
-    
-    switch (id) {
-      case ID_SOC:
-        dashData.soc = serialBuffer[j++];
-        Serial.printf("  SOC: %d%%\n", dashData.soc);
-        updatedIDs[updateCount++] = id;
-        break;
-        
-      case ID_VOLTAGE: {
-        uint16_t v = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.voltage = v * 0.01f;
-        j += 2;
-        Serial.printf("  Voltage: %.2f V\n", dashData.voltage);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_CURRENT: {
-        uint16_t c = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.current = (c & 0x8000) ? -(c & 0x7FFF) * 0.01f : c * 0.01f;
-        j += 2;
-        Serial.printf("  Current: %.2f A\n", dashData.current);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_TEMP: {
-        uint16_t t = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.battery_temp = (int)(t * 0.1f);
-        j += 2;
-        Serial.printf("  Battery Temp: %d°C\n", dashData.battery_temp);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_SPEED: {
-        uint16_t s = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.speed = (int)(s * 0.1f);
-        j += 2;
-        Serial.printf("  Speed: %d km/h\n", dashData.speed);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_MODE: {
-        uint8_t m = serialBuffer[j++];
-        if (m == MODE_ECO) dashData.mode = "Eco";
-        else if (m == MODE_CITY) dashData.mode = "City";
-        else if (m == MODE_SPORT) dashData.mode = "Sport";
-        Serial.printf("  Mode: %s\n", dashData.mode.c_str());
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_ARMED: {
-        uint8_t a = serialBuffer[j++];
-        dashData.status = a ? "ARMED" : "DISARMED";
-        Serial.printf("  Status: %s\n", dashData.status.c_str());
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_RANGE: {
-        uint16_t r = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.range = (int)(r * 0.1f);
-        j += 2;
-        Serial.printf("  Range: %d km\n", dashData.range);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_CONSUMPTION: {
-        uint16_t c = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.avg_wkm = (int)(c * 0.1f);
-        j += 2;
-        Serial.printf("  Consumption: %d W/km\n", dashData.avg_wkm);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_AMBIENT_TEMP: {
-        uint16_t t = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.motor_temp = (int)(t * 0.1f);
-        j += 2;
-        Serial.printf("  Motor Temp: %d°C\n", dashData.motor_temp);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_TRIP: {
-        uint16_t t = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.trip = (int)(t * 0.1f);
-        j += 2;
-        Serial.printf("  Trip: %d km\n", dashData.trip);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_ODOMETER: {
-        uint32_t o = (serialBuffer[j] << 24) | (serialBuffer[j+1] << 16) | 
-                    (serialBuffer[j+2] << 8) | serialBuffer[j+3];
-        dashData.odo = (int)(o * 0.1f);
-        j += 4;
-        Serial.printf("  Odometer: %d km\n", dashData.odo);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-      
-      case ID_AVG_SPEED: {
-        uint16_t as = (serialBuffer[j] << 8) | serialBuffer[j+1];
-        dashData.avg_kmh = (int)(as * 0.1f);
-        j += 2;
-        Serial.printf("  Avg Speed: %d km/h\n", dashData.avg_kmh);
-        updatedIDs[updateCount++] = id;
-        break;
-      }
-
-      default:
-        Serial.printf("  Unknown ID: 0x%02X\n", id);
-        if (id == ID_ODOMETER) j += 4;
-        else if (id >= 0x80 && id <= 0x8F) j += 2;
-        else j++;
-        break;
-    }
-  }
-  
-  // Update only changed UI elements
-  Serial.printf("[UI] Updating %d elements...\n", updateCount);
-  for (uint8_t k = 0; k < updateCount; k++) {
-    update_ui_element(updatedIDs[k]);
-  }
-  
-  // Single display refresh
-  lv_refr_now(disp);
-  Serial.println("[UI] Display updated\n");
-}
 
 void setup() {
   Serial.begin(115200);
   delay(100);
 
+
+  // Your typical frame is ~22 bytes, so trigger at 24 bytes
+  Serial1.setRxFIFOFull(64);
+  
+  // Default is 256 bytes, increase to 1024 bytes
+  Serial1.setRxBufferSize(1024);
+
   // Initialize RS485
   Serial1.begin(115200, SERIAL_8N1, SERIAL1_RX, SERIAL1_TX);
+
+
 
   Serial.println("\n=== EV Dashboard ===");
 
